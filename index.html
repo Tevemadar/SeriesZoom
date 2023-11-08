@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>TODO supply a title</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            html{
+                height: 100%;
+                overflow: hidden;
+            }
+            body{
+                /*background: green;*/
+                display: flex;
+                height: 100%;
+                top: 0;
+                bottom: 0;
+                margin: auto;
+            }
+            #main{
+                /*background: gray;*/
+                flex: 1 1 auto;
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                container-type: size;
+            }
+            #filmstrip{
+                /*background: yellow;*/
+                display: flex;
+                flex-direction: column;
+            }
+            #striphead{
+                flex: none;
+            }
+            #stripscroller{
+                overflow-y: scroll;
+                flex: auto;
+                display: flex;
+                flex-direction: column;
+            }
+            .icon{
+                border-top: 5px solid transparent;
+                border-bottom: 5px solid transparent;
+                /*                margin-bottom: 10px;
+                                margin-top: 10px;*/
+            }
+            .icon.active{
+                border-top: 5px solid orange;
+                border-bottom: 5px solid orange;
+            }
+            #meta{
+                position: absolute;
+                top: 0;
+                right: 0;
+                text-align: center;
+                margin: 0.5em;
+            }
+            #hsep{
+                background-color: gray;
+                width: 0.5em;
+            }
+        </style>
+        <script src="cache.js"></script>
+        <script src="zoomer.js"></script>
+        <script>
+            const params = new URLSearchParams(location.search);
+            const bucket = params.get("bucket");
+            const prefix = params.get("prefix");
+            const images = [];
+            const observer = new IntersectionObserver(loader);
+            const iconmap = new Map();
+            async function start() {
+                const result = await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`).then(response => response.json());
+                if ("objects" in result) {
+                    const candidates = result.objects.filter(item => "subdir" in item && item.subdir.includes("."));
+                    const requests = candidates.map(async item => {
+                        const name = item.subdir.substring(0, item.subdir.lastIndexOf("."));
+                        const dzi = await fetch(`${bucket}/${prefix ?? ""}${item.subdir}${name}.dzi`).then(response => response.text());
+                        return {
+                            name,
+                            base: `${bucket}/${item.subdir}${name}_files/`,
+                            width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
+                            height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
+                            tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
+                            overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
+                            format: dzi.match(/Format="([^"]+)"/m)[1]
+                        };
+                    });
+                    const scroller = document.getElementById("stripscroller");
+                    for (const candidate of await Promise.allSettled(requests)) {
+                        if ("value" in candidate) {
+                            const image = candidate.value;
+                            let maxlevel = 0;
+                            let {width: w, height: h} = image;
+                            while (w > 1 || h > 1) {
+                                w = (w + 1) >> 1;
+                                h = (h + 1) >> 1;
+                                maxlevel++;
+                            }
+                            image.maxlevel = maxlevel;
+                            const canvas = document.createElement("canvas");
+                            canvas.width = 128;
+                            canvas.height = Math.floor(image.height * 128 / image.width);
+                            canvas.addEventListener("click", activate);
+                            canvas.classList.add("icon");
+                            image.canvas = canvas;
+//                            drawX(canvas);
+                            scroller.appendChild(canvas);
+                            images.push(image);
+                            iconmap.set(canvas, image);
+                            observer.observe(canvas);
+                        }
+                    }
+                    let mid = images[images.length >> 1].canvas;
+//                    mid.style.background="orange";
+//                    mid.style.border="2px solid orange";
+//                    mid.classList.toggle("active");
+                    mid.scrollIntoView({block: "center"});
+                    activate({target: mid});
+                }
+                console.log(images);
+                fullCanvas();
+            }
+            let active;
+            let zoomer;
+            function activate(event) {
+                if (active === event.target)
+                    return;
+                if (active)
+                    active.classList.remove("active");
+                active = event.target;
+                active.classList.add("active");
+                const {name, base, width, height, tilesize, overlap, format, maxlevel} = iconmap.get(active);
+                const DZIcfg = {
+                    Width: width,
+                    Height: height,
+                    TileSize: tilesize,
+                    MaxLevel: maxlevel,
+                    Load: async (level, x, y) => {
+                        let tile = document.createElement("img");
+                        await new Promise((resolve, reject) => {
+                            tile.onerror = reject;
+                            tile.onload = resolve;
+                            tile.crossOrigin = "anonymous";
+                            tile.src = `${base}${maxlevel - level}/${x}_${y}.${format}`;
+                        });
+                        const canvas = document.createElement("canvas");
+                        canvas.width = tilesize;
+                        canvas.height = tilesize;
+                        canvas.getContext("2d").drawImage(tile, x === 0 ? 0 : -overlap, y === 0 ? 0 : -overlap);
+                        return canvas;
+                    }
+                };
+                const canvas = document.getElementById("cnv");
+                if (zoomer)
+                    zoomer.destroy();
+                zoomer = new Zoomer(canvas, DZIcfg);
+                zoomer.home();
+                document.getElementById("meta").innerText = `${name}\n${width} x ${height}`;
+            }
+            async function loader(entries) {
+                for (const entry of entries)
+                    if (entry.isIntersecting) {
+                        const canvas = entry.target;
+                        const image = iconmap.get(canvas);
+//                        iconmap.delete(canvas);
+                        observer.unobserve(canvas);
+                        const img = document.createElement("img");
+                        img.onload = () => {
+                            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+                        };
+                        img.src = `${image.base}8/0_0.${image.format}`;
+                    }
+            }
+            function fullCanvas() {
+//                requestAnimationFrame(() => {
+                const main = document.getElementById("main");
+                const cnv = document.getElementById("cnv");
+                cnv.width = main.offsetWidth - 1;
+                cnv.height = main.offsetHeight - 1;
+//                drawX(cnv);
+                if (zoomer)
+                    zoomer.home();
+//                });
+            }
+            window.onresize = fullCanvas;
+//            function drawX(canvas) {
+//                const ctx = canvas.getContext("2d");
+//                const w = canvas.width;
+//                const h = canvas.height;
+//                ctx.clearRect(0, 0, w, h);
+//                ctx.lineWidth = 1;
+//                ctx.strokeStyle = "red";
+//                ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+//                ctx.beginPath();
+//                ctx.moveTo(0, 0);
+//                ctx.lineTo(w, h);
+//                ctx.moveTo(0, h);
+//                ctx.lineTo(w, 0);
+//                ctx.stroke();
+//            }
+        </script>
+    </head>
+    <body onload="start()">
+        <div id="main">
+            <canvas id="cnv"></canvas>
+            <div id="meta"></div>
+        </div>
+        <div id="hsep"></div>
+        <div id="filmstrip">
+            <!--<div id="striphead">Test</div>-->
+            <div id="stripscroller"></div>
+        </div>
+    </body>
+</html>
