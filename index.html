@@ -72,21 +72,40 @@
             const iconmap = new Map();
             async function start() {
                 const result = await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`).then(response => response.json());
-                if ("objects" in result) {
-                    const candidates = result.objects.filter(item => "subdir" in item && item.subdir.includes("."));
-                    const requests = candidates.map(async item => {
-                        const name = item.subdir.substring(0, item.subdir.lastIndexOf("."));
-                        const dzi = await fetch(`${bucket}/${prefix ?? ""}${item.subdir}${name}.dzi`).then(response => response.text());
-                        return {
-                            name,
-                            base: `${bucket}/${item.subdir}${name}_files/`,
-                            width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
-                            height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
-                            tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
-                            overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
-                            format: dzi.match(/Format="([^"]+)"/m)[1]
-                        };
-                    });
+                const objects = "objects" in result ? result.objects : Array.isArray(result) ? result : false;
+                if (objects) {
+                    let requests, candidates;
+                    if (!bucket.startsWith("https://object.cscs.ch/v1/AUTH_")) {
+                        candidates = objects.filter(item => "subdir" in item && item.subdir.includes("."));
+                        requests = candidates.map(async item => {
+                            const name = item.subdir.substring(0, item.subdir.lastIndexOf("."));
+                            const dzi = await fetch(`${bucket}/${prefix ?? ""}${item.subdir}${name}.dzi`).then(response => response.text());
+                            return {
+                                name,
+                                base: `${bucket}/${item.subdir}${name}_files/`,
+                                width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
+                                height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
+                                tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
+                                overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
+                                format: dzi.match(/Format="([^"]+)"/m)[1]
+                            };
+                        });
+                    } else {
+                        candidates = objects.filter(item => "name" in item && (item.name.endsWith(".xml") || item.name.endsWith(".dzi")));
+                        requests = candidates.map(async item => {
+                            const name = item.name.slice(0, -4);
+                            const dzi = await fetch(`${bucket}/${item.name}`).then(response => response.text());
+                            return {
+                                name,
+                                base: `${bucket}/${name}_files/`,
+                                width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
+                                height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
+                                tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
+                                overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
+                                format: dzi.match(/Format="([^"]+)"/m)[1]
+                            };
+                        });
+                    }
                     const scroller = document.getElementById("stripscroller");
                     for (const candidate of await Promise.allSettled(requests)) {
                         if ("value" in candidate) {
