@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
     <head>
-        <title>TODO supply a title</title>
+        <title>Simple series viewer</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
@@ -50,11 +50,18 @@
                 border-bottom: 5px solid orange;
             }
             #meta{
+                color: black;
+                background: lightgray;
                 position: absolute;
                 top: 0;
                 right: 0;
                 text-align: center;
-                margin: 0.5em;
+                padding: 0.5em;
+            }
+            #controls{
+                position: absolute;
+                top: 0;
+                padding: 0.5em;
             }
             #hsep{
                 background-color: gray;
@@ -135,10 +142,10 @@
 //                    mid.style.background="orange";
 //                    mid.style.border="2px solid orange";
 //                    mid.classList.toggle("active");
-                    mid.scrollIntoView({block: "center"});
+//                    mid.scrollIntoView({block: "center"});
                     activate({target: mid});
                 }
-                console.log(images);
+//                console.log(images);
                 fullCanvas();
             }
             let active;
@@ -150,6 +157,7 @@
                     active.classList.remove("active");
                 active = event.target;
                 active.classList.add("active");
+                active.scrollIntoView({block: "center"});
                 const {name, base, width, height, tilesize, overlap, format, maxlevel} = iconmap.get(active);
                 const DZIcfg = {
                     Width: width,
@@ -177,6 +185,8 @@
                 zoomer = new Zoomer(canvas, DZIcfg);
                 zoomer.home();
                 document.getElementById("meta").innerText = `${name}\n${width} x ${height}`;
+                document.getElementById("prev").disabled = !active.previousSibling;
+                document.getElementById("next").disabled = !active.nextSibling;
             }
             async function loader(entries) {
                 for (const entry of entries)
@@ -204,6 +214,16 @@
 //                });
             }
             window.onresize = fullCanvas;
+            function prev(){
+                if(!active)
+                    return;
+                activate({target:active.previousSibling});
+            }
+            function next(){
+                if(!active)
+                    return;
+                activate({target:active.nextSibling});
+            }
 //            function drawX(canvas) {
 //                const ctx = canvas.getContext("2d");
 //                const w = canvas.width;
@@ -225,6 +245,11 @@
         <div id="main">
             <canvas id="cnv"></canvas>
             <div id="meta"></div>
+            <div id="controls">
+                <button onclick="fullCanvas()">Reset</button>
+                <button id="prev" onclick="prev()">&lt;</button>
+                <button id="next" onclick="next()">&gt;</button>
+            </div>
         </div>
         <div id="hsep"></div>
         <div id="filmstrip">
