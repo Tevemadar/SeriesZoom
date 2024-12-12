@@ -77,6 +77,15 @@
             const images = [];
             const observer = new IntersectionObserver(loader);
             const iconmap = new Map();
+            function parsedzi(dzi) {
+                return {
+                    width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
+                    height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
+                    tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
+                    overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
+                    format: dzi.match(/Format="([^"]+)"/m)[1]
+                }
+            }
             async function start() {
                 const result = await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`).then(response => response.json());
                 const objects = "objects" in result ? result.objects : Array.isArray(result) ? result : false;
@@ -90,11 +99,7 @@
                             return {
                                 name,
                                 base: `${bucket}/${item.subdir}${name}_files/`,
-                                width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
-                                height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
-                                tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
-                                overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
-                                format: dzi.match(/Format="([^"]+)"/m)[1]
+                                ...parsedzi(dzi)
                             };
                         });
                     } else {
@@ -105,11 +110,7 @@
                             return {
                                 name,
                                 base: `${bucket}/${name}_files/`,
-                                width: parseInt(dzi.match(/Width="(\d+)"/m)[1]),
-                                height: parseInt(dzi.match(/Height="(\d+)"/m)[1]),
-                                tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
-                                overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
-                                format: dzi.match(/Format="([^"]+)"/m)[1]
+                                ...parsedzi(dzi)
                             };
                         });
                     }
@@ -214,15 +215,15 @@
 //                });
             }
             window.onresize = fullCanvas;
-            function prev(){
-                if(!active)
+            function prev() {
+                if (!active)
                     return;
-                activate({target:active.previousSibling});
+                activate({target: active.previousSibling});
             }
-            function next(){
-                if(!active)
+            function next() {
+                if (!active)
                     return;
-                activate({target:active.nextSibling});
+                activate({target: active.nextSibling});
             }
 //            function drawX(canvas) {
 //                const ctx = canvas.getContext("2d");
