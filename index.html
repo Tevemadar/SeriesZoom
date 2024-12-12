@@ -70,8 +70,16 @@
         </style>
         <script src="https://cdn.jsdelivr.net/gh/Tevemadar/pyrajs-core/cache.min.js"></script>
         <script src="https://cdn.jsdelivr.net/gh/Tevemadar/pyrajs-core/zoomer.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/gh/Tevemadar/NetUnzip/inflater.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/gh/Tevemadar/NetUnzip/netunzip.min.js"></script>
         <script>
             const params = new URLSearchParams(location.search);
+            const dzip = params.get("dzip");
+            if (dzip) {
+                const [dziproot, bucket, prefix] = dzip.match(/(.*?\/buckets\/.+?)\/(.*\/)?/);
+                params.set("bucket", bucket);
+                params.set("prefix", prefix);
+            }
             const bucket = params.get("bucket");
             const prefix = params.get("prefix");
             const images = [];
@@ -89,63 +97,76 @@
             async function start() {
                 const result = await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`).then(response => response.json());
                 const objects = "objects" in result ? result.objects : Array.isArray(result) ? result : false;
-                if (objects) {
-                    let requests, candidates;
-                    if (!bucket.startsWith("https://object.cscs.ch/v1/AUTH_")) {
-                        candidates = objects.filter(item => "subdir" in item && item.subdir.includes("."));
-                        requests = candidates.map(async item => {
-                            const name = item.subdir.substring(0, item.subdir.lastIndexOf("."));
-                            const dzi = await fetch(`${bucket}/${prefix ?? ""}${item.subdir}${name}.dzi`).then(response => response.text());
-                            return {
-                                name,
-                                base: `${bucket}/${item.subdir}${name}_files/`,
-                                ...parsedzi(dzi)
-                            };
-                        });
-                    } else {
-                        candidates = objects.filter(item => "name" in item && (item.name.endsWith(".xml") || item.name.endsWith(".dzi")));
-                        requests = candidates.map(async item => {
-                            const name = item.name.slice(0, -4);
-                            const dzi = await fetch(`${bucket}/${item.name}`).then(response => response.text());
-                            return {
-                                name,
-                                base: `${bucket}/${name}_files/`,
-                                ...parsedzi(dzi)
-                            };
-                        });
-                    }
-                    const scroller = document.getElementById("stripscroller");
-                    for (const candidate of await Promise.allSettled(requests)) {
-                        if ("value" in candidate) {
-                            const image = candidate.value;
-                            let maxlevel = 0;
-                            let {width: w, height: h} = image;
-                            while (w > 1 || h > 1) {
-                                w = (w + 1) >> 1;
-                                h = (h + 1) >> 1;
-                                maxlevel++;
-                            }
-                            image.maxlevel = maxlevel;
-                            const canvas = document.createElement("canvas");
-                            canvas.width = 128;
-                            canvas.height = Math.floor(image.height * 128 / image.width);
-                            canvas.addEventListener("click", activate);
-                            canvas.classList.add("icon");
-                            image.canvas = canvas;
-//                            drawX(canvas);
-                            scroller.appendChild(canvas);
-                            images.push(image);
-                            iconmap.set(canvas, image);
-                            observer.observe(canvas);
+                if (!objects)
+                    return; //!!
+                let requests, candidates;
+                if (dzip) {
+                    const td = new TextDecoder();
+                    candidates = objects.filter(item => "name" in item && (item.name.endsWith(".dzip"))).map(item => item.name);
+                    requests = candidates.map(async item => {
+                        const name = item.substring(item.lastIndexOf("/") + 1, item.length - 5);
+                        const dzip = await netunzip(`${bucket}/${item}`);
+                        const dzi = td.decode(await dzip.get(dzip.entries.get(name + ".dzi")));
+                        return {
+                            name,
+                            dzip,
+                            ...parsedzi(dzi)
+                        };
+                    });
+                } else if (!bucket.startsWith("https://object.cscs.ch/v1/AUTH_")) {
+                    candidates = objects.filter(item => "subdir" in item && item.subdir.includes("."));
+                    requests = candidates.map(async item => {
+                        const name = item.subdir.substring(0, item.subdir.lastIndexOf("."));
+                        const dzi = await fetch(`${bucket}/${prefix ?? ""}${item.subdir}${name}.dzi`).then(response => response.text());
+                        return {
+                            name,
+                            base: `${bucket}/${item.subdir}${name}_files/`,
+                            ...parsedzi(dzi)
+                        };
+                    });
+                } else {
+                    candidates = objects.filter(item => "name" in item && (item.name.endsWith(".xml") || item.name.endsWith(".dzi")));
+                    requests = candidates.map(async item => {
+                        const name = item.name.slice(0, -4);
+                        const dzi = await fetch(`${bucket}/${item.name}`).then(response => response.text());
+                        return {
+                            name,
+                            base: `${bucket}/${name}_files/`,
+                            ...parsedzi(dzi)
+                        };
+                    });
+                }
+                const scroller = document.getElementById("stripscroller");
+                for (const candidate of await Promise.allSettled(requests)) {
+                    if ("value" in candidate) {
+                        const image = candidate.value;
+                        let maxlevel = 0;
+                        let {width: w, height: h} = image;
+                        while (w > 1 || h > 1) {
+                            w = (w + 1) >> 1;
+                            h = (h + 1) >> 1;
+                            maxlevel++;
                         }
+                        image.maxlevel = maxlevel;
+                        const canvas = document.createElement("canvas");
+                        canvas.width = 128;
+                        canvas.height = Math.floor(image.height * 128 / image.width);
+                        canvas.addEventListener("click", activate);
+                        canvas.classList.add("icon");
+                        image.canvas = canvas;
+//                            drawX(canvas);
+                        scroller.appendChild(canvas);
+                        images.push(image);
+                        iconmap.set(canvas, image);
+                        observer.observe(canvas);
                     }
-                    let mid = images[images.length >> 1].canvas;
+                }
+                let mid = images[images.length >> 1].canvas;
 //                    mid.style.background="orange";
 //                    mid.style.border="2px solid orange";
 //                    mid.classList.toggle("active");
 //                    mid.scrollIntoView({block: "center"});
-                    activate({target: mid});
-                }
+                activate({target: mid});
 //                console.log(images);
                 fullCanvas();
             }
@@ -159,7 +180,7 @@
                 active = event.target;
                 active.classList.add("active");
                 active.scrollIntoView({block: "center"});
-                const {name, base, width, height, tilesize, overlap, format, maxlevel} = iconmap.get(active);
+                const {name, base, dzip, width, height, tilesize, overlap, format, maxlevel} = iconmap.get(active);
                 const DZIcfg = {
                     Width: width,
                     Height: height,
@@ -167,11 +188,25 @@
                     MaxLevel: maxlevel,
                     Load: async (level, x, y) => {
                         let tile = document.createElement("img");
-                        await new Promise((resolve, reject) => {
-                            tile.onerror = reject;
-                            tile.onload = resolve;
-                            tile.crossOrigin = "anonymous";
-                            tile.src = `${base}${maxlevel - level}/${x}_${y}.${format}`;
+                        await new Promise(async(resolve, reject) => {
+                            if (base) {
+                                tile.onerror = reject;
+                                tile.onload = resolve;
+                                tile.crossOrigin = "anonymous";
+                                tile.src = `${base}${maxlevel - level}/${x}_${y}.${format}`;
+                            } else {
+                                const data = await dzip.get(dzip.entries.get(`${name}_files/${maxlevel - level}/${x}_${y}.${format}`));
+                                const url = URL.createObjectURL(new Blob([data], {type: `image/${format}`}));
+                                tile.onerror = () => {
+                                    URL.revokeObjectURL(url);
+                                    reject();
+                                };
+                                tile.onload = () => {
+                                    URL.revokeObjectURL(url);
+                                    resolve();
+                                };
+                                tile.src = url;
+                            }
                         });
                         const canvas = document.createElement("canvas");
                         canvas.width = tilesize;
@@ -193,14 +228,24 @@
                 for (const entry of entries)
                     if (entry.isIntersecting) {
                         const canvas = entry.target;
-                        const image = iconmap.get(canvas);
+                        const {name, base, dzip, format} = iconmap.get(canvas);
 //                        iconmap.delete(canvas);
                         observer.unobserve(canvas);
                         const img = document.createElement("img");
-                        img.onload = () => {
-                            canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
-                        };
-                        img.src = `${image.base}8/0_0.${image.format}`;
+                        if (base) {
+                            img.onload = () => {
+                                canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+                            };
+                            img.src = `${base}8/0_0.${format}`;
+                        } else {
+                            const data = await dzip.get(dzip.entries.get(`${name}_files/8/0_0.${format}`));
+                            const url = URL.createObjectURL(new Blob([data], {type: `image/${format}`}));
+                            img.onload = () => {
+                                URL.revokeObjectURL(url);
+                                canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+                            };
+                            img.src = url;
+                        }
                     }
             }
             function fullCanvas() {
