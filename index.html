@@ -13,7 +13,7 @@
                 /*background: green;*/
                 display: flex;
                 height: 100%;
-                top: 0;
+                /*top: 0;*/
                 bottom: 0;
                 margin: auto;
             }
@@ -24,7 +24,7 @@
                 margin: 0;
                 padding: 0;
                 overflow: hidden;
-                container-type: size;
+                /*container-type: size;*/
             }
             #filmstrip{
                 /*background: yellow;*/
@@ -75,6 +75,7 @@
         <script src="https://cdn.jsdelivr.net/gh/Tevemadar/NetUnzip/netunzip.min.js"></script>
         <script>
             const params = new URLSearchParams(location.search);
+            const token = params.has("token") ? decodeURIComponent(params.get("token")) : false;
             const dzip = params.get("dzip");
             if (dzip) {
                 const [dziproot, bucket, prefix] = dzip.match(/(.*?\/buckets\/.+?)\/(.*\/)?/);
@@ -93,10 +94,12 @@
                     tilesize: parseInt(dzi.match(/TileSize="(\d+)"/m)[1]),
                     overlap: parseInt(dzi.match(/Overlap="(\d+)"/m)[1]),
                     format: dzi.match(/Format="([^"]+)"/m)[1]
-                }
+                };
             }
             async function start() {
-                const result = await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`).then(response => response.json());
+                const result = token ?
+                        await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`, {headers: {authorization: `Bearer ${token}`}}).then(response => response.json()) :
+                        await fetch(`${bucket}?delimiter=/&limit=10000&format=json${prefix ? `&prefix=${prefix}` : ""}`).then(response => response.json());
                 const objects = "objects" in result ? result.objects : Array.isArray(result) ? result : false;
                 if (!objects)
                     return; //!!
@@ -106,7 +109,9 @@
                     candidates = objects.filter(item => "name" in item && (item.name.endsWith(".dzip"))).map(item => item.name);
                     requests = candidates.map(async item => {
                         const name = item.substring(item.lastIndexOf("/") + 1, item.length - 5);
-                        const dzip = await netunzip(`${bucket}/${item}`);
+                        const dzip = token ?
+                                await netunzip(() => fetch(`${bucket}/${item}?redirect=false`, {headers: {authorization: `Bearer ${token}`}}).then(response => response.json()).then(json => json.url)) :
+                                await netunzip(`${bucket}/${item}`);
                         const dzi = td.decode(await dzip.get(dzip.entries.get(name + ".dzi")));
                         return {
                             name,
