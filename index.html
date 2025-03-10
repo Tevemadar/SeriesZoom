@@ -111,7 +111,8 @@
                         const name = item.substring(item.lastIndexOf("/") + 1, item.length - 5);
                         const dzip = token ?
                                 await netunzip(() => fetch(`${bucket}/${item}?redirect=false`, {headers: {authorization: `Bearer ${token}`}}).then(response => response.json()).then(json => json.url)) :
-                                await netunzip(`${bucket}/${item}`);
+                                await netunzip(() => fetch(`${bucket}/${item}?redirect=false`).then(response => response.json()).then(json => json.url));
+//                                await netunzip(`${bucket}/${item}`);
                         const dzi = td.decode(await dzip.get(dzip.entries.get(name + ".dzi")));
                         return {
                             name,
